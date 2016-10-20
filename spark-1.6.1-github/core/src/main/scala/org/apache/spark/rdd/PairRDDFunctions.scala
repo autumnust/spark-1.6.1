@@ -544,6 +544,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    * (k, v2) is in `other`. Uses the given Partitioner to partition the output RDD.
    */
   def join[W](other: RDD[(K, W)], partitioner: Partitioner): RDD[(K, (V, W))] = self.withScope {
+    /* This cogroup issued by Join. Add timer inside. */
     this.cogroup(other, partitioner).flatMapValues( pair =>
       for (v <- pair._1.iterator; w <- pair._2.iterator) yield (v, w)
     )
@@ -782,7 +783,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
     if (partitioner.isInstanceOf[HashPartitioner] && keyClass.isArray) {
       throw new SparkException("Default partitioner cannot partition array keys.")
     }
-    val cg = new CoGroupedRDD[K](Seq(self, other1, other2, other3), partitioner)
+    val cg = new CoGroupedRDD[K](Seq(self, other1, other2, other3), partitioner, false)
     cg.mapValues { case Array(vs, w1s, w2s, w3s) =>
        (vs.asInstanceOf[Iterable[V]],
          w1s.asInstanceOf[Iterable[W1]],
@@ -794,13 +795,14 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
   /**
    * For each key k in `this` or `other`, return a resulting RDD that contains a tuple with the
    * list of values for that key in `this` as well as `other`.
+    * Assumption:mapValues doesn't count too much time.
    */
   def cogroup[W](other: RDD[(K, W)], partitioner: Partitioner)
       : RDD[(K, (Iterable[V], Iterable[W]))] = self.withScope {
     if (partitioner.isInstanceOf[HashPartitioner] && keyClass.isArray) {
       throw new SparkException("Default partitioner cannot partition array keys.")
     }
-    val cg = new CoGroupedRDD[K](Seq(self, other), partitioner)
+    val cg = new CoGroupedRDD[K](Seq(self, other), partitioner, true)
     cg.mapValues { case Array(vs, w1s) =>
       (vs.asInstanceOf[Iterable[V]], w1s.asInstanceOf[Iterable[W]])
     }
@@ -815,7 +817,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
     if (partitioner.isInstanceOf[HashPartitioner] && keyClass.isArray) {
       throw new SparkException("Default partitioner cannot partition array keys.")
     }
-    val cg = new CoGroupedRDD[K](Seq(self, other1, other2), partitioner)
+    val cg = new CoGroupedRDD[K](Seq(self, other1, other2), partitioner, false)
     cg.mapValues { case Array(vs, w1s, w2s) =>
       (vs.asInstanceOf[Iterable[V]],
         w1s.asInstanceOf[Iterable[W1]],

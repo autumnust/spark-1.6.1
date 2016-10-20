@@ -30,6 +30,8 @@ import org.apache.spark.util.collection.{CompactBuffer, ExternalAppendOnlyMap}
 import org.apache.spark.util.Utils
 import org.apache.spark.serializer.Serializer
 
+import org.apache.log4j.{Level, LogManager, PropertyConfigurator}
+
 /** The references to rdd and splitIndex are transient because redundant information is stored
   * in the CoGroupedRDD object.  Because CoGroupedRDD is serialized separately from
   * CoGroupPartition, if rdd and splitIndex aren't transient, they'll be included twice in the
@@ -73,11 +75,13 @@ private[spark] class CoGroupPartition(
  *
  * @param rdds parent RDDs.
  * @param part partitioner used to partition the shuffle output
+ * @param joinFlag The flag indicate that this CoGroupedRDD is issued by a join operation.
  */
 @DeveloperApi
 class CoGroupedRDD[K: ClassTag](
     @transient var rdds: Seq[RDD[_ <: Product2[K, _]]],
-    part: Partitioner)
+    part: Partitioner,
+    joinFlag: Boolean)
   extends RDD[(K, Array[Iterable[_]])](rdds.head.context, Nil) {
 
   // For example, `(k, a) cogroup (k, b)` produces k -> Array(ArrayBuffer as, ArrayBuffer bs).
@@ -128,6 +132,19 @@ class CoGroupedRDD[K: ClassTag](
   override val partitioner: Some[Partitioner] = Some(part)
 
   override def compute(s: Partition, context: TaskContext): Iterator[(K, Array[Iterable[_]])] = {
+
+    val my_log = org.apache.log4j.LogManager.getLogger("myLogger")
+    my_log.setLevel(Level.INFO)
+    val printedBefore =
+      "[CoGroupedRDD Start] TaksAttemp ID: " + context.taskAttemptId().toString() +
+        ",Partition Id : " + context.partitionId().toString +
+        ", Stage Id:" + context.stageId().toString
+    if (joinFlag){
+      my_log.info(printedBefore)
+    }
+    val startTime = System.nanoTime()
+
+
     val split = s.asInstanceOf[CoGroupPartition]
     val numRdds = dependencies.length
 
@@ -156,8 +173,20 @@ class CoGroupedRDD[K: ClassTag](
     context.taskMetrics().incDiskBytesSpilled(map.diskBytesSpilled)
     context.internalMetricsToAccumulators(
       InternalAccumulator.PEAK_EXECUTION_MEMORY).add(map.peakMemoryUsedBytes)
-    new InterruptibleIterator(context,
+    val funcRet = new InterruptibleIterator(context,
       map.iterator.asInstanceOf[Iterator[(K, Array[Iterable[_]])]])
+
+    val endTime = System.nanoTime()
+    val printedAfter =
+      "[CoGroupedRDD End] TaksAttemp ID: " + context.taskAttemptId().toString() +
+        ",Partition Id : " + context.partitionId().toString +
+        ", Stage Id:" + context.stageId().toString +
+        ", Lasting : " + (endTime - startTime).toString
+    if (joinFlag) {
+      my_log.info(printedAfter)
+    }
+
+    funcRet
   }
 
   private def createExternalMap(numRdds: Int)

@@ -26,6 +26,8 @@ import org.apache.spark.{Dependency, Partition, RangeDependency, SparkContext, T
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.util.Utils
 
+import org.apache.log4j.{Level, LogManager, PropertyConfigurator}
+
 /**
  * Partition for UnionRDD.
  *
@@ -42,6 +44,8 @@ private[spark] class UnionPartition[T: ClassTag](
     @transient private val parentRddPartitionIndex: Int)
   extends Partition {
 
+  // parentRddIndex is helping find the parent RDD.
+  // parentRddPartitionIndex is helping finding the partition within the targeted parent RDD.
   var parentPartition: Partition = rdd.partitions(parentRddPartitionIndex)
 
   def preferredLocations(): Seq[String] = rdd.preferredLocations(parentPartition)
@@ -83,8 +87,22 @@ class UnionRDD[T: ClassTag](
   }
 
   override def compute(s: Partition, context: TaskContext): Iterator[T] = {
+    val my_log = org.apache.log4j.LogManager.getLogger("myLogger")
+    my_log.setLevel(Level.INFO)
+    my_log.info( "[Union Start] TaksAttemp ID: " + context.taskAttemptId().toString() +
+      ",Partition Id : " + context.partitionId().toString +
+      ", Stage Id:" + context.stageId().toString)
+    val startTime = System.nanoTime()
+
     val part = s.asInstanceOf[UnionPartition[T]]
-    parent[T](part.parentRddIndex).iterator(part.parentPartition, context)
+    val funcRet = parent[T](part.parentRddIndex).iterator(part.parentPartition, context)
+
+    val endTime = System.nanoTime()
+    my_log.info( "[Union End] TaksAttemp ID: " + context.taskAttemptId().toString() +
+      ",Partition Id : " + context.partitionId().toString +
+      ", Stage Id:" + context.stageId().toString +
+      ", Lasting : " + (endTime - startTime).toString) ;
+    funcRet
   }
 
   override def getPreferredLocations(s: Partition): Seq[String] =

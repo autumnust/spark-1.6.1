@@ -20,6 +20,7 @@ package org.apache.spark.rdd
 import scala.reflect.ClassTag
 
 import org.apache.spark.{Partition, TaskContext}
+import org.apache.log4j.{Level, LogManager, PropertyConfigurator}
 
 /**
  * An RDD that applies the provided function to every partition of the parent RDD.
@@ -30,12 +31,34 @@ private[spark] class MapPartitionsRDD[U: ClassTag, T: ClassTag](
     preservesPartitioning: Boolean = false)
   extends RDD[U](prev) {
 
+  /**
+   * first parent means the most recent parent.
+   */
   override val partitioner = if (preservesPartitioning) firstParent[T].partitioner else None
 
   override def getPartitions: Array[Partition] = firstParent[T].partitions
 
-  override def compute(split: Partition, context: TaskContext): Iterator[U] =
-    f(context, split.index, firstParent[T].iterator(split, context))
+  override def compute(split: Partition, context: TaskContext): Iterator[U] = {
+    val my_log = org.apache.log4j.LogManager.getLogger("myLogger")
+    my_log.setLevel(Level.INFO)
+    val printedBefore =
+      "[MapPartition Start] TaksAttemp ID: " + context.taskAttemptId().toString() +
+      ",Partition Id : " + context.partitionId().toString +
+      ", Stage Id:" + context.stageId().toString
+    my_log.info(printedBefore)
+    val startTime = System.nanoTime()
+
+    val funcRet = f(context, split.index, firstParent[T].iterator(split, context))
+
+    val endTime = System.nanoTime()
+    val printedAfter =
+      "[MapPartition End] TaksAttemp ID: " + context.taskAttemptId().toString() +
+        ",Partition Id : " + context.partitionId().toString +
+        ", Stage Id:" + context.stageId().toString +
+        ", Lasting : " + (endTime - startTime).toString
+    my_log.info(printedAfter)
+    funcRet
+  }
 
   override def clearDependencies() {
     super.clearDependencies()
